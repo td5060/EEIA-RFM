@@ -1,0 +1,304 @@
+import itertools
+import random
+from operator import concat
+import sys
+import os
+import copy
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+import joblib
+from math import sqrt
+from scipy.stats import gaussian_kde
+from sklearn.metrics import mean_squared_error, confusion_matrix, r2_score, classification_report
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, RandomForestClassifier
+from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+import xgboost as xgb
+from keras.layers import Dense
+from keras import backend as K
+from keras.models import Model
+from keras.models import Sequential, load_model
+from sklearn.inspection import permutation_importance
+from pandas.testing import assert_frame_equal
+from keras.layers import Dense, LSTM,Bidirectional, Dropout
+from datetime import datetime
+from sklearn.utils import shuffle
+from scipy import stats
+
+os.chdir('C:/Work/ORM/Data')
+
+
+pd.set_option('display.max_rows',500)
+pd.set_option('display.max_columns',500)
+
+
+# # Read the data
+data = pd.read_csv('file_dir')
+# print(data.describe())
+
+# # Sub/Extreme data selection
+# data = data[(data['ozone']>120)]
+# data = data[(data['Month']>6)&(data['Month']<10)]
+# print(data.describe())
+
+
+# scaled data
+scaler = MinMaxScaler(feature_range=(0, 1))
+values_scaled = scaler.fit_transform(values)
+
+# Reshape-input data
+
+def re_input(values,n_time,n_feature):
+    v = values.shape[0] - n_time+1
+    X = np.zeros([v,n_time*n_feature+1])
+    for i in range(v):
+        X[i,1:] = values[i:i+n_time,1:].reshape([1,-1])
+        X[i,0] = values[i+n_time-1, 0]
+    return X
+
+def re_input_seq(values,n_time,n_feature):
+    v = values.shape[0] - n_time+1
+    X = np.zeros([v,n_time*(n_feature+1)])
+    for i in range(v):
+        X[i,n_time:] = values[i:i+n_time,1:].reshape([1,-1])
+        X[i,0:n_time] = values[i:i+n_time, 0]
+    return X
+
+
+# Real-time split
+def split_data_real(X,test_size,n_time,seq):
+    train = X[:-test_size, :]
+    test = X[-test_size:,:]
+    # split into input and outputs
+    if seq==0:
+            train_X, train_y = train[:, 1:], train[:, 0]
+            test_X, test_y = test[:, 1:], test[:, 0]
+    else:
+        train_X, train_y = train[:, n_time:], train[:, :n_time]
+        test_X, test_y = test[:, n_time:], test[:, :n_time]
+    # # reshape input to be 3D [samples, timesteps, features]
+    # train_X = train_X.reshape((-1, n_time, n_feature))
+    # test_X = test_X.reshape((-1, n_time, n_feature))
+    return train_X, train_y, test_X, test_y
+
+
+# transform regression into classification function
+def  rg_2_cl (x):
+    y = copy.deepcopy(x)
+    for i in range(y.shape[0]):
+        if (y[i] < 120):
+            y[i] = 0
+        # elif (y[i] < 100):
+        #     y[i] = 1
+        else:
+            y[i] = 1
+    return y
+
+def fit_model(train_X, train_y, test_X, test_y):
+    # design network
+    model = Sequential()
+    # train_X = train_X.reshape((-1, 5, 7))
+    # test_X = test_X.reshape((-1, 5, 7))
+    # model.add(Bidirectional(LSTM(100, return_sequences=True,activation='relu'), input_shape=(train_X.shape[1], train_X.shape[2])),)
+    # model.add(Bidirectional(LSTM(100, return_sequences=True,activation='relu'), ),)
+    # model.add(Bidirectional(LSTM(100, activation='relu'), ),)
+    # model.add(LSTM(100, input_shape=(train_X.shape[1], train_X.shape[2]), return_sequences=True, activation='relu'),)
+    # model.add(Dropout(0.2))
+    # model.add(LSTM(100,  return_sequences=True, activation='relu',), )
+    # model.add(Dropout(0.2))
+    # model.add(LSTM(100,  return_sequences=True, activation='relu'), )
+    # model.add(Dropout(0.2))
+    # model.add(LSTM(100,  activation='relu'), )
+    # model.add(Dropout(0.2))
+    model.add(Dense(100,activation = 'relu',input_shape=(train_X.shape[1],)))
+    # model.add(Dense(30,activation = 'relu'))
+    # model.add(Dense(200,activation = 'relu'))
+    model.add(Dense(100,activation = 'relu'))
+    # model.add(Dense(30,activation = 'relu'))
+    model.add(Dense(1))
+    model.compile(loss='mse', optimizer='adam')
+    # fit network
+    history = model.fit(train_X, train_y, epochs=100, batch_size=256,
+                        validation_data=(test_X, test_y), verbose=1, shuffle=False)
+    # make a prediction
+    # pred_y_train = model.predict(train_X)
+    pred_y = model.predict(test_X)
+    # print(test_X.shape)
+    # print(pred_y.shape)
+    return history, pred_y, model
+
+
+def plot_confusion_matrix(y_true, y_pred, classes, normalize=False, title='Confusion matrix: DEBE051, 2014-2018',):
+    cm = confusion_matrix(y_true, y_pred)
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+    else:
+        print('Confusion matrix, without normalization')
+    print(cm)
+    plt.imshow(cm, cmap=plt.cm.Greens)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes,) # rotation=45 if necessary
+    plt.yticks(tick_marks, classes)
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt),
+                 horizontalalignment="center",
+                 color="white" if cm[i, j] > thresh else "black")
+    # for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+    #     plt.text(j, i, format(cm[i, j], fmt),horizontalalignment="center",)
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+    plt.legend()
+    # plt.show()
+
+def data_inv(x, pred_y):
+    x_max = np.max(x)
+    x_min = np.min(x)
+    x_m = x_max - x_min
+    inv_yhat = pred_y * x_m + x_min
+    return inv_yhat
+
+# Prediction
+def result_evalu_show(true, pred):
+    rmse = sqrt(mean_squared_error(true, pred))
+    Corr = np.corrcoef(true, pred)
+    xy = np.vstack([true,pred])  
+    # z = gaussian_kde(xy)(xy) 
+    # mae = np.mean(abs(true - pred))
+    # df = pd.DataFrame()
+    # df['a'] = true
+    # df['b'] = pred
+    # print('Mae: ' + str(mae))
+    print('RMSE: ' + str(rmse))
+    print('R2:')
+    print(r2_score(true,pred, multioutput= 'uniform_average'))
+    # print('Corr:')
+    # print(Corr)
+    # print()
+
+    fig, ax = plt.subplots(figsize=(8, 6))  # Adjust the figure size as needed
+
+    # Create a scatter plot
+    scatter = ax.scatter(filtered_test_yy, filtered_pred, alpha=0.5, edgecolors='w', label='Data Points')
+
+    # Fit a line to the filtered data
+    slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_test_yy, filtered_pred)
+    line = slope * filtered_test_yy + intercept
+
+    # Plot the fitted line
+    ax.plot(filtered_test_yy, line, color='red', label=f'Fit: y={slope:.2f}x+{intercept:.2f}')
+
+    # Labeling the plot
+    ax.set_xlabel('Observed MDA8 Concentration (ug/m³)', fontsize=12)
+    ax.set_ylabel('Predicted Ozone (ug/m³)', fontsize=12)
+    ax.set_title('EEIA-RF Model', fontsize=14)
+    ax.legend(loc='upper left', frameon=True, facecolor='white', framealpha=0.9)
+
+    # Improve layout
+    plt.tight_layout()
+
+    # Optional: Set grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+
+    # # Show the plot
+    # plt.show()
+
+
+
+
+
+# RNN Reshape
+time_step = 1
+feature_num = 7
+re_values = re_input(values, n_time=time_step, n_feature=feature_num)
+re_values_scaled = re_input(values_scaled, n_time=time_step, n_feature=feature_num)
+
+
+# Random split
+r_state = 10
+ts = 0.2
+
+train_X, test_X, train_y, test_y = train_test_split(re_values_scaled[:,1:],re_values_scaled[:,0], test_size=ts, random_state = r_state)
+
+train_XX, test_XX, train_yy, test_yy = train_test_split(re_values[:,1:],re_values[:,0], test_size=ts,random_state = r_state)
+
+
+
+# # # Model Training
+print('Job Start')
+
+# # Train the model with Keras
+# history, pred_y, model = fit_model(train_X, train_y, test_X, test_y)
+
+# # Train the model with sklearn
+
+forest = RandomForestRegressor(n_estimators=100,criterion='squared_error',bootstrap=True)
+# forest = MLPRegressor()
+# forest =  LinearRegression()
+model = forest.fit(train_X,train_y,)
+print(model)
+pred_y = model.predict(test_X)
+pred_y_train = model.predict(train_X)
+
+
+# # Inverse data
+pred = data_inv(values[:, 0], pred_y).reshape([-1,])
+pred_train = data_inv(values[:, 0], pred_y_train)
+
+# # Error tolerate, Adjust pred instead of threshold
+# pred = pred + 1
+
+# print('Test Size: '+ str(pred.shape))
+# print('Training Error:')
+# result_evalu_show(train_yy, pred_train)
+# print()
+print('Test Error:')
+result_evalu_show(test_yy, pred)
+
+y_true = rg_2_cl(test_yy)
+y_pred = rg_2_cl(pred)
+class_names = np.array(['<120','>120'])
+plot_confusion_matrix(y_true,y_pred,class_names,title='Confusion matrix', normalize=False)
+plot_confusion_matrix(y_true,y_pred,class_names,title='Confusion matrix',normalize=True)
+
+
+
+# # Determine the number of samples to add and remove
+# num_samples_to_add = K # Adjust as needed
+# num_samples_to_remove = num_samples_to_add
+
+# # Generate random indices
+# random_indices = np.random.choice(train_X.shape[0], num_samples_to_add, replace=True)
+
+# # Randomly duplicate exceedance samples
+# gen_exceedance_X = train_X[random_indices]
+# gen_exceedance_XX = train_XX[random_indices] # data without normalization
+# gen_exceedance_y = model.predict(gen_exceedance_X)
+# gen_exceedance_y_inv = data_inv(values[:, 0], gen_exceedance_y).reshape([-1,])
+# print(gen_exceedance_X.shape)
+# print(gen_exceedance_y.shape)
+
+# # Merge and shuffle
+# new_sample = np.concatenate([gen_exceedance_y_inv.reshape([-1,1]), gen_exceedance_XX], axis=1)
+
+# new_df = pd.DataFrame(new_sample)
+# print(new_df.describe())
+# new_df.to_csv("new_data_dir",index=False)
+
+
+# #Save the (Extreme) model if necessary
+# joblib.dump(model, "model_name.joblib")
+# joblib.dump(model, "forest_model_rg_munchen_eeia.joblib")
+
+
+
+
