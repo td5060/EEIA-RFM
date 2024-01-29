@@ -2,7 +2,6 @@ import itertools
 import random
 from operator import concat
 import sys
-import os
 import copy
 import pandas as pd
 import numpy as np
@@ -14,7 +13,7 @@ from scipy.stats import gaussian_kde
 from sklearn.metrics import mean_squared_error, confusion_matrix, r2_score, classification_report
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import xgboost as xgb
@@ -24,12 +23,9 @@ from keras.models import Model
 from keras.models import Sequential, load_model
 from sklearn.inspection import permutation_importance
 from pandas.testing import assert_frame_equal
-from keras.layers import Dense, LSTM,Bidirectional, Dropout
-from datetime import datetime
+from keras.layers import Dense, Dropout
 from sklearn.utils import shuffle
 from scipy import stats
-
-os.chdir('C:/Work/ORM/Data')
 
 
 pd.set_option('display.max_rows',500)
@@ -167,29 +163,17 @@ def data_inv(x, pred_y):
     inv_yhat = pred_y * x_m + x_min
     return inv_yhat
 
-# Prediction
+# ResuLt Evaluation and Show
 def result_evalu_show(true, pred):
     rmse = sqrt(mean_squared_error(true, pred))
     Corr = np.corrcoef(true, pred)
-    xy = np.vstack([true,pred])  
-    # z = gaussian_kde(xy)(xy) 
-    # mae = np.mean(abs(true - pred))
-    # df = pd.DataFrame()
-    # df['a'] = true
-    # df['b'] = pred
-    # print('Mae: ' + str(mae))
     print('RMSE: ' + str(rmse))
     print('R2:')
     print(r2_score(true,pred, multioutput= 'uniform_average'))
-    # print('Corr:')
-    # print(Corr)
-    # print()
 
     fig, ax = plt.subplots(figsize=(8, 6))  # Adjust the figure size as needed
-
     # Create a scatter plot
     scatter = ax.scatter(filtered_test_yy, filtered_pred, alpha=0.5, edgecolors='w', label='Data Points')
-
     # Fit a line to the filtered data
     slope, intercept, r_value, p_value, std_err = stats.linregress(filtered_test_yy, filtered_pred)
     line = slope * filtered_test_yy + intercept
@@ -212,11 +196,29 @@ def result_evalu_show(true, pred):
     # # Show the plot
     # plt.show()
 
+def EEIA_sample(num_samples_to_add = K, model):
+    # num_samples_to_remove = num_samples_to_add
+    
+    # # Generate random indices
+    # random_indices = np.random.choice(train_X.shape[0], num_samples_to_add, replace=True)
+    
+    # # Randomly duplicate exceedance samples
+    # gen_exceedance_X = train_X[random_indices]
+    # gen_exceedance_XX = train_XX[random_indices] # data without normalization
+    # gen_exceedance_y = model.predict(gen_exceedance_X)
+    # gen_exceedance_y_inv = data_inv(values[:, 0], gen_exceedance_y).reshape([-1,])
+    # print(gen_exceedance_X.shape)
+    # print(gen_exceedance_y.shape)
+    
+    # # Merge and shuffle
+    # new_sample = np.concatenate([gen_exceedance_y_inv.reshape([-1,1]), gen_exceedance_XX], axis=1)
+    
+    # new_df = pd.DataFrame(new_sample)
+    # print(new_df.describe())
+    # new_df.to_csv("new_data_dir",index=False)
+    # print('Generated Data Saved')
 
-
-
-
-# RNN Reshape
+# Data Reshape
 time_step = 1
 feature_num = 7
 re_values = re_input(values, n_time=time_step, n_feature=feature_num)
@@ -226,9 +228,7 @@ re_values_scaled = re_input(values_scaled, n_time=time_step, n_feature=feature_n
 # Random split
 r_state = 10
 ts = 0.2
-
 train_X, test_X, train_y, test_y = train_test_split(re_values_scaled[:,1:],re_values_scaled[:,0], test_size=ts, random_state = r_state)
-
 train_XX, test_XX, train_yy, test_yy = train_test_split(re_values[:,1:],re_values[:,0], test_size=ts,random_state = r_state)
 
 
@@ -240,10 +240,7 @@ print('Job Start')
 # history, pred_y, model = fit_model(train_X, train_y, test_X, test_y)
 
 # # Train the model with sklearn
-
 forest = RandomForestRegressor(n_estimators=100,criterion='squared_error',bootstrap=True)
-# forest = MLPRegressor()
-# forest =  LinearRegression()
 model = forest.fit(train_X,train_y,)
 print(model)
 pred_y = model.predict(test_X)
@@ -254,9 +251,10 @@ pred_y_train = model.predict(train_X)
 pred = data_inv(values[:, 0], pred_y).reshape([-1,])
 pred_train = data_inv(values[:, 0], pred_y_train)
 
-# # Error tolerate, Adjust pred instead of threshold
-# pred = pred + 1
+# # Error tolerate, Adjust pred instead of threshold if nnecessary
+# pred = pred + I
 
+# # Data validation
 # print('Test Size: '+ str(pred.shape))
 # print('Training Error:')
 # result_evalu_show(train_yy, pred_train)
@@ -264,36 +262,15 @@ pred_train = data_inv(values[:, 0], pred_y_train)
 print('Test Error:')
 result_evalu_show(test_yy, pred)
 
+# # Validate by confusion matrix
 y_true = rg_2_cl(test_yy)
 y_pred = rg_2_cl(pred)
 class_names = np.array(['<120','>120'])
 plot_confusion_matrix(y_true,y_pred,class_names,title='Confusion matrix', normalize=False)
 plot_confusion_matrix(y_true,y_pred,class_names,title='Confusion matrix',normalize=True)
 
-
-
-# # Determine the number of samples to add and remove
-# num_samples_to_add = K # Adjust as needed
-# num_samples_to_remove = num_samples_to_add
-
-# # Generate random indices
-# random_indices = np.random.choice(train_X.shape[0], num_samples_to_add, replace=True)
-
-# # Randomly duplicate exceedance samples
-# gen_exceedance_X = train_X[random_indices]
-# gen_exceedance_XX = train_XX[random_indices] # data without normalization
-# gen_exceedance_y = model.predict(gen_exceedance_X)
-# gen_exceedance_y_inv = data_inv(values[:, 0], gen_exceedance_y).reshape([-1,])
-# print(gen_exceedance_X.shape)
-# print(gen_exceedance_y.shape)
-
-# # Merge and shuffle
-# new_sample = np.concatenate([gen_exceedance_y_inv.reshape([-1,1]), gen_exceedance_XX], axis=1)
-
-# new_df = pd.DataFrame(new_sample)
-# print(new_df.describe())
-# new_df.to_csv("new_data_dir",index=False)
-
+# # Generated exceedance data as needed, adjusted K (New data number)
+EEIA_sample(K, model)
 
 # #Save the (Extreme) model if necessary
 # joblib.dump(model, "model_name.joblib")
